@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var rootCmd = &cobra.Command{
@@ -17,58 +18,86 @@ var rootCmd = &cobra.Command{
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir, _ := filepath.Abs(args[0])
-		var repos []string
 
-		err := filepath.Walk(dir,
-			func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				fmt.Println(path, info.Size())
-				return nil
-			})
-
-		if err != nil {
-			return
-		}
-
-		o, err := CheckRepo(dir)
+		repos, err := RepoList(dir)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		fmt.Println(o)
+		for _, r := range repos {
+			fmt.Println(r)
+			CheckRepo(r)
+		}
+
+		// o, err := CheckRepo(dir)
+		// if err != nil {
+		// 	fmt.Println(err)
+		// 	return
+		// }
+		// fmt.Println(o)
 	},
 }
 
-func CheckRepo(dir string) (bool, error) {
-	if _, err := IsRepo(dir); err != nil {
-		return false, err
-	}
+func RepoList(dir string) ([]string, error) {
+	var list []string
+	permissionDenied := regexp.MustCompile(`permission denied`)
 
-	_, err := exec.Command("git", "fetch").Output()
-	upToDate, err := IsRepoUpToDate(dir)
+	err := filepath.Walk(dir,
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				if !permissionDenied.MatchString(fmt.Sprintf("%+v", err)) {
+					return err
+				}
+				return nil
+			}
 
-	if err != nil {
-		return false, err
-	}
-	return upToDate, nil
+			if info.IsDir() {
+				isRepo, _ := IsRepo(path)
+				if isRepo {
+					list = append(list, path)
+				}
+			}
+			return nil
+		})
+	return list, err
 }
 
-func IsRepoUpToDate(dir string) (bool, error) {
-	os.Chdir(dir)
-	output, err := exec.Command("git", "status").Output()
-	status := string(output)
-
+func CheckRepo(repoDir string) (bool, error) {
+	os.Chdir(repoDir)
+	// check that there is at least one remote
+	remotesOutput, err := exec.Command("git", "remote", "-v").Output()
 	if err != nil {
 		return false, err
 	}
+	fmt.Println(strings.Split(string(remotesOutput), "\n"))
+	return false, err
+
+
+	// // fetch latest information from remotes
+	// _, err := exec.Command("git", "fetch").Output()
+	// if err != nil {
+	// 	return false, err
+	// }
+
+	// // gather git command outputs
+	// statusOutput, err := exec.Command("git", "status").Output()
+	// if err != nil {
+	// 	return false, err
+	// }
+
+	// // check that the repo is up to date
+	// upToDate, err := IsRepoUpToDate(string(statusOutput))
+
+	// if err != nil {
+	// 	return false, err
+	// }
+	// return upToDate, nil
+}
+
+func IsRepoUpToDate(status string) (bool, error) {
 	return IsBranchUpToDate(status) && IsTreeClean(status), nil
 }
 
-// Your branch is ahead of 'origin/package' by 1 commit.
-// Your branch is up to date with 'origin/package'.
-// Your branch and 'origin/master' have diverged,
 func IsBranchUpToDate(status string) bool {
 	branchUpToDate := regexp.MustCompile(`Your branch is up to date with 'origin`)
 	return branchUpToDate.MatchString(status)
@@ -79,28 +108,14 @@ func IsTreeClean(status string) bool {
 	return treeClean.MatchString(status)
 }
 
-func IsRepo(dir string) (string, error) {
+func IsRepo(dir string) (bool, error) {
 	gitp := filepath.Join(dir, ".git")
 
 	if _, err := os.Stat(gitp); os.IsNotExist(err) {
-		return dir, err
+		return false, err
 	} else {
-		return dir, nil
+		return true, nil
 	}
-}
-
-var prependDateCmd = &cobra.Command{
-	Use:     "prependdate",
-	Aliases: []string{"pd"},
-	Short:   "Downloads an episode of a podcast.",
-	Long:    ``,
-	Args:    cobra.MinimumNArgs(1),
-	Run:     prependDate,
-}
-
-func prependDate(cmd *cobra.Command, args []string) {
-	fmt.Println("prependDate")
-	fmt.Println(args[0])
 }
 
 func Execute() {
