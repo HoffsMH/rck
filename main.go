@@ -70,8 +70,8 @@ func CheckRepo(repoDir string) (bool, error) {
 		return false, err
 	}
 	remotes := len(strings.Split(string(o), "\n"))
-	if remotes < 1 {
-		return false, err
+	if remotes < 2 {
+		return true, err
 	}
 
 	// fetch latest information from remotes
