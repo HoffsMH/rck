@@ -25,16 +25,15 @@ var rootCmd = &cobra.Command{
 			return
 		}
 		for _, r := range repos {
-			fmt.Println(r)
-			CheckRepo(r)
-		}
+			rs, err := CheckRepo(r)
+			if err != nil {
+				return
+			}
 
-		// o, err := CheckRepo(dir)
-		// if err != nil {
-		// 	fmt.Println(err)
-		// 	return
-		// }
-		// fmt.Println(o)
+			if !rs {
+				fmt.Println(r)
+			}
+		}
 	},
 }
 
@@ -64,34 +63,37 @@ func RepoList(dir string) ([]string, error) {
 
 func CheckRepo(repoDir string) (bool, error) {
 	os.Chdir(repoDir)
+
 	// check that there is at least one remote
-	remotesOutput, err := exec.Command("git", "remote", "-v").Output()
+	o, err := exec.Command("git", "remote", "-v").Output()
 	if err != nil {
 		return false, err
 	}
-	fmt.Println(strings.Split(string(remotesOutput), "\n"))
-	return false, err
+	remotes := len(strings.Split(string(o), "\n"))
+	if remotes < 1 {
+		return false, err
+	}
 
+	// fetch latest information from remotes
+	_, err = exec.Command("git", "fetch").Output()
 
-	// // fetch latest information from remotes
-	// _, err := exec.Command("git", "fetch").Output()
-	// if err != nil {
-	// 	return false, err
-	// }
+	if err != nil {
+		return false, err
+	}
 
-	// // gather git command outputs
-	// statusOutput, err := exec.Command("git", "status").Output()
-	// if err != nil {
-	// 	return false, err
-	// }
+	// gather git command outputs
+	o, err = exec.Command("git", "status").Output()
+	status := string(o)
+	if err != nil {
+		return false, err
+	}
 
-	// // check that the repo is up to date
-	// upToDate, err := IsRepoUpToDate(string(statusOutput))
-
-	// if err != nil {
-	// 	return false, err
-	// }
-	// return upToDate, nil
+	// check that the repo is up to date
+	upToDate, err := IsRepoUpToDate(status)
+	if err != nil {
+		return false, err
+	}
+	return upToDate, err
 }
 
 func IsRepoUpToDate(status string) (bool, error) {
@@ -99,8 +101,14 @@ func IsRepoUpToDate(status string) (bool, error) {
 }
 
 func IsBranchUpToDate(status string) bool {
-	branchUpToDate := regexp.MustCompile(`Your branch is up to date with 'origin`)
-	return branchUpToDate.MatchString(status)
+	// confirm that there is "Your Branch is" before
+	// asserting that the branch is up to date
+	info := regexp.MustCompile(`Your branch is`)
+	uptoDate := regexp.MustCompile(`Your branch is up to date with 'origin`)
+	if !info.MatchString(status) {
+		return true
+	}
+	return uptoDate.MatchString(status)
 }
 
 func IsTreeClean(status string) bool {
