@@ -29,9 +29,7 @@ var rootCmd = &cobra.Command{
 			rs, err := CheckRepo(r)
 			if err != nil {
 				errors = append(errors, err)
-			}
-
-			if !rs {
+			} else if !rs {
 				fmt.Println(r)
 			}
 		}
@@ -73,53 +71,72 @@ func CheckRepo(repoDir string) (bool, error) {
 	// check that there is at least one remote
 	o, err := exec.Command("git", "remote", "-v").Output()
 	if err != nil {
-		return true, fmt.Errorf(repoDir, ": git remote failed")
+		return false, fmt.Errorf(repoDir, ": git remote failed")
 	}
 	remotes := len(strings.Split(string(o), "\n"))
 	if remotes < 2 {
-		return true, fmt.Errorf(repoDir, ": no remotes")
+		return false, fmt.Errorf(repoDir, ": no remotes")
 	}
 
 	// fetch latest information from remotes
 	_, err = exec.Command("git", "fetch").Output()
-
 	if err != nil {
-		return true, fmt.Errorf(repoDir, ": git fetch failed")
-	}
-
-	// gather git command outputs
-	o, err = exec.Command("git", "status").Output()
-	status := string(o)
-	if err != nil {
-		return true, fmt.Errorf(repoDir, ": git status failed")
+		return false, fmt.Errorf(repoDir, ": git fetch failed")
 	}
 
 	// check that the repo is up to date
-	upToDate, err := IsRepoUpToDate(status)
+	upToDate, err := IsRepoUpToDate(repoDir)
 	if err != nil {
 		return false, err
 	}
 	return upToDate, err
 }
 
-func IsRepoUpToDate(status string) (bool, error) {
-	return IsBranchUpToDate(status) && IsTreeClean(status), nil
-}
-
-func IsBranchUpToDate(status string) bool {
-	// confirm that there is "Your Branch is" before
-	// asserting that the branch is up to date
-	info := regexp.MustCompile(`Your branch is`)
-	uptoDate := regexp.MustCompile(`Your branch is up to date with 'origin`)
-	if !info.MatchString(status) {
-		return true
+func IsRepoUpToDate(dir string) (bool, error) {
+	localOnly, err := BranchHasLocalOnly(dir)
+	if err != nil {
+		return false, err
 	}
-	return uptoDate.MatchString(status)
+	treeClean, err := IsTreeClean(dir)
+	if err != nil {
+		return false, err
+	}
+
+	return !localOnly && treeClean, nil
 }
 
-func IsTreeClean(status string) bool {
+func BranchHasLocalOnly(dir string) (bool, error) {
+	// get current branch name
+	o, err := exec.Command("git", "rev-parse","--abbrev-ref", "HEAD").Output()
+	bn := strings.TrimRight(string(o), "\n")
+	if err != nil {
+		return true, fmt.Errorf(dir, ": git rev-parse to get branch name failed")
+	}
+	// find out if there is even a version of this branch on origin?
+
+	// find out if there are any commits that local has that origin does not
+	o, err = exec.Command("git", "rev-list", bn ,"--not", "origin/" + bn, "--count").Output()
+	if err != nil {
+		return true, fmt.Errorf(dir, ": git rev-list to compare to origin failed")
+	}
+	if strings.TrimRight(string(o), "\n") == "0" {
+		return false, nil
+	}
+	return true, nil
+}
+
+
+func IsTreeClean(dir string) (bool, error) {
+	os.Chdir(dir)
+	o, err := exec.Command("git", "status").Output()
+	status := string(o)
+	if err != nil {
+		return true, fmt.Errorf(dir, ": git status failed")
+	}
+
 	treeClean := regexp.MustCompile(`nothing to commit, working tree clean`)
-	return treeClean.MatchString(status)
+
+	return treeClean.MatchString(status), nil
 }
 
 func IsRepo(dir string) (bool, error) {
@@ -127,10 +144,9 @@ func IsRepo(dir string) (bool, error) {
 
 	if info, err := os.Stat(gitp); os.IsNotExist(err) {
 		return false, err
-	} else {
-		if info.IsDir() {
+	} else if info.isDir() {
 			return true, nil
-		}
+	} else
 		return false, nil
 	}
 }
