@@ -18,6 +18,7 @@ var rootCmd = &cobra.Command{
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir, _ := filepath.Abs(args[0])
+		var errors []error
 
 		repos, err := RepoList(dir)
 		if err != nil {
@@ -27,12 +28,17 @@ var rootCmd = &cobra.Command{
 		for _, r := range repos {
 			rs, err := CheckRepo(r)
 			if err != nil {
-				return
+				errors = append(errors, err)
 			}
 
 			if !rs {
 				fmt.Println(r)
 			}
+		}
+		fmt.Println()
+		fmt.Println("=========ERRORS========")
+		for _, e := range errors {
+			fmt.Println(e)
 		}
 	},
 }
@@ -67,25 +73,25 @@ func CheckRepo(repoDir string) (bool, error) {
 	// check that there is at least one remote
 	o, err := exec.Command("git", "remote", "-v").Output()
 	if err != nil {
-		return false, err
+		return true, fmt.Errorf(repoDir, ": git remote failed")
 	}
 	remotes := len(strings.Split(string(o), "\n"))
 	if remotes < 2 {
-		return true, err
+		return true, fmt.Errorf(repoDir, ": no remotes")
 	}
 
 	// fetch latest information from remotes
 	_, err = exec.Command("git", "fetch").Output()
 
 	if err != nil {
-		return false, err
+		return true, fmt.Errorf(repoDir, ": git fetch failed")
 	}
 
 	// gather git command outputs
 	o, err = exec.Command("git", "status").Output()
 	status := string(o)
 	if err != nil {
-		return false, err
+		return true, fmt.Errorf(repoDir, ": git status failed")
 	}
 
 	// check that the repo is up to date
@@ -119,10 +125,13 @@ func IsTreeClean(status string) bool {
 func IsRepo(dir string) (bool, error) {
 	gitp := filepath.Join(dir, ".git")
 
-	if _, err := os.Stat(gitp); os.IsNotExist(err) {
+	if info, err := os.Stat(gitp); os.IsNotExist(err) {
 		return false, err
 	} else {
-		return true, nil
+		if info.IsDir() {
+			return true, nil
+		}
+		return false, nil
 	}
 }
 
