@@ -144,9 +144,9 @@ func IsRepo(dir string) (bool, error) {
 
 	if info, err := os.Stat(gitp); os.IsNotExist(err) {
 		return false, err
-	} else if info.isDir() {
+	} else if info.IsDir() {
 			return true, nil
-	} else
+	} else {
 		return false, nil
 	}
 }
